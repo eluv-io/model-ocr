@@ -1,0 +1,9 @@
+device: cuda
+
+model_path: models
+runtime:
+  default:
+    fps: 2
+    allow_single_frame: true
+    l_thres: 0.8
+    w_thres: 0.8
