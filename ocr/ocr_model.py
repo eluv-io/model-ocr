@@ -131,7 +131,6 @@ class OCRModel(FrameModel):
         return ocr_tags
     
     def tag(self, frame: np.ndarray) -> List[FrameTag]:
-        frame = cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_LINEAR)
         tags = self.ocr_inference.inference([frame], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
         res = []
         for tag in tags[0]['ocr']['tags']:
