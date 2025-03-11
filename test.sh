@@ -14,5 +14,6 @@ podman run --rm --volume=$(pwd)/test:/elv/test:ro --volume=$(pwd)/test_output:/e
 ex=$?
 
 cd test_output
+ls -l
 
 exit $ex
