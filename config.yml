@@ -1,5 +1,8 @@
 device: cuda
 
+storage:
+  model_path: /ml/models/ocr
+
 model_path: models
 runtime:
   default:
