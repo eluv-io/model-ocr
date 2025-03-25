@@ -1,15 +1,13 @@
 FROM continuumio/miniconda3:latest
-
 WORKDIR /elv
+
+RUN conda create -n mlpod python=3.8 -y
+
+SHELL ["conda", "run", "-n", "mlpod", "/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y build-essential && apt-get install -y ffmpeg
 
-RUN conda create -n tagenv python=3.8 -y
-
-SHELL ["conda", "run", "-n", "tagenv", "/bin/bash", "-c"]
-
 RUN conda install -y cudatoolkit=10.1 cudnn=7 nccl
-
 RUN conda install -y -c conda-forge ffmpeg-python
 
 # Create the SSH directory and set correct permissions
@@ -26,9 +24,9 @@ COPY models ./models
 RUN mkdir ocr
 COPY setup.py .
 
-RUN /opt/conda/envs/tagenv/bin/pip install .
+RUN /opt/conda/envs/mlpod/bin/pip install .
 
 COPY ocr ./ocr
 COPY config.yml run.py setup.py config.py .
 
-ENTRYPOINT ["/opt/conda/envs/tagenv/bin/python", "run.py"]
+ENTRYPOINT ["/opt/conda/envs/mlpod/bin/python", "run.py"]
