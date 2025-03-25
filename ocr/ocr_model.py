@@ -6,8 +6,8 @@ from easydict import EasyDict as edict
 import numpy as np
 from typing import List, Dict, Optional, Union
 import torch
-from dataclasses import dataclass
-import cv2
+from dataclasses import dataclass, asdict
+from copy import deepcopy
 
 from .ocr import OCR
 from common_ml.model import FrameModel
@@ -129,6 +129,9 @@ class OCRModel(FrameModel):
                     {idx: tag for idx, tag in res.items() if tag})
         ocr_tags = self._format_as_frame_tag(ocr_tags)
         return ocr_tags
+    
+    def get_config(self):
+        return deepcopy(asdict(self.config))
     
     def tag(self, frame: np.ndarray) -> List[FrameTag]:
         tags = self.ocr_inference.inference([frame], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
