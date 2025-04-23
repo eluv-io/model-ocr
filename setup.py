@@ -11,6 +11,7 @@ setup(
         'torch==1.9.0',
         'torchvision==0.10.0',
         'numpy==1.21.6',
+        'setproctitle',
         'common_ml @ git+ssh://git@github.com/qluvio/common-ml.git#egg=common_ml',
     ]
 )

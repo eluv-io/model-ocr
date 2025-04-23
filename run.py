@@ -5,6 +5,7 @@ import json
 from typing import List
 from common_ml.utils import nested_update
 from common_ml.model import default_tag
+import setproctitle
 
 from ocr.ocr_model import OCRModel
 from config import config
@@ -22,6 +23,7 @@ def run(file_paths: List[str], runtime_config: str=None):
     default_tag(model, file_paths, out_path)
         
 if __name__ == '__main__':
+    setproctitle.setproctitle("model-ocr")
     parser = argparse.ArgumentParser()
     parser.add_argument('file_paths', nargs='+', type=str)
     parser.add_argument('--config', type=str, required=False)
