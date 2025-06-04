@@ -5,7 +5,7 @@
 ### Dependencies
 1. Podman with nvidia toolkit enabled
 2. Python
-3. Access to qluvio repo via ssh key
+3. Access to eluv-io repo via ssh key
 
 #### Download celebrity detection model
 `python download_weights.py`
