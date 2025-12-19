@@ -1,3 +1,7 @@
 models/*
 .cache/*
 test_output/*
+test/*
+*.egg-info
+tags
+__pycache__
