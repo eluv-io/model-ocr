@@ -19,7 +19,7 @@ class RuntimeConfig:
     w_thres: float = 0.8
     l_thres: float = 0.8
 
-class OCRModel(FrameModel):
+class OCRModel(BatchFrameModel):
     def __init__(self, model_input_path: str, runtime_config: RuntimeConfig):
 
         self.model_input_path = model_input_path
@@ -97,14 +97,14 @@ class OCRModel(FrameModel):
         })
         return params
     
-    """
     def tag_frames(self, imgs: np.ndarray) -> List[List[FrameTag]]:
         res = []
         ocr_batch = 10
         for i in range(0, len(imgs), ocr_batch):
             ocr_out = self.ocr_inference.inference(
                 imgs[i:i+ocr_batch], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
-            for img in ocr_out:
+            print(ocr_out)
+            for _, img in sorted(ocr_out.items(), key=lambda x: int(x[0])):
                 res.append([])
                 for tag in img['ocr']['tags']:
                     box = tag["box"]
@@ -113,16 +113,4 @@ class OCRModel(FrameModel):
                     text = tag["text"]
                     res[-1].append(FrameTag(tag=text, box=box))
 
-        return res
-    """
-
-    def tag_frame(self, img: np.ndarray) -> List[FrameTag]:
-        tags = self.ocr_inference.inference([img], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
-        res = []
-        for tag in tags[0]['ocr']['tags']:
-            box = tag["box"]
-            # limit to only x1, x2, y1, y2
-            box = {"x1": box["x1"], "x2": box["x2"], "y1": box["y1"], "y2": box["y2"]}
-            text = tag["text"]
-            res[-1].append(FrameTag(tag=text, box=box))
         return res
