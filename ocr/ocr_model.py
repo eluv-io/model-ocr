@@ -4,37 +4,26 @@ import sys
 sys.path.append('.')
 from easydict import EasyDict as edict
 import numpy as np
-from typing import List, Dict, Optional, Union
+from typing import List
 import torch
 from dataclasses import dataclass, asdict
 from copy import deepcopy
 
+from common_ml.tagging.models.frame_based import BatchFrameModel, FrameTag, FrameModel
+
 from .ocr import OCR
-from common_ml.model import FrameModel
-from common_ml.tags import FrameTag
-from common_ml.types import Data
+
 
 @dataclass
-class RuntimeConfig(Data):
-    fps: int
-    allow_single_frame: bool
-    w_thres: float
-    l_thres: bool
-
-    @staticmethod
-    def from_dict(data: dict) -> 'RuntimeConfig':
-        return RuntimeConfig(**data)
+class RuntimeConfig:
+    w_thres: float = 0.8
+    l_thres: float = 0.8
 
 class OCRModel(FrameModel):
-    def __init__(self, model_input_path: str, runtime_config: Union[dict, RuntimeConfig]):
+    def __init__(self, model_input_path: str, runtime_config: RuntimeConfig):
 
         self.model_input_path = model_input_path
-        if isinstance(runtime_config, dict):
-            self.config = RuntimeConfig.from_dict(runtime_config)
-        elif isinstance(runtime_config, RuntimeConfig):
-            self.config = runtime_config
-        else:
-            raise TypeError("runtime_config must be a dict or RuntimeConfig object")
+        self.config = runtime_config
         
         args = self.__add_params()
         device = torch.device('cuda')
@@ -108,37 +97,32 @@ class OCRModel(FrameModel):
         })
         return params
     
-    def _format_as_frame_tag(self, data) -> Dict[int, List[FrameTag]]:
-        result = {}
-        for frame_idx, item in data.items():
-            item = item["ocr"].copy()
-            for i in range(len(item["tags"])):
-                del item["tags"][i]["polygon"]
-            del item["words"]
-            result[frame_idx] = [FrameTag(**tag) for tag in item["tags"]]
-        return result
-
-    def tag_frames(self, frames: List[np.ndarray]) -> List[FrameTag]:
-        ocr_tags = {}
+    """
+    def tag_frames(self, imgs: np.ndarray) -> List[List[FrameTag]]:
+        res = []
         ocr_batch = 10
-        for i in range(0, len(frames), ocr_batch):
-            res = self.ocr_inference.inference(
-                frames[i:i+ocr_batch], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
-            if res:
-                ocr_tags.update(
-                    {idx: tag for idx, tag in res.items() if tag})
-        ocr_tags = self._format_as_frame_tag(ocr_tags)
-        return ocr_tags
-    
-    def get_config(self):
-        return deepcopy(asdict(self.config))
-    
-    def tag(self, frame: np.ndarray) -> List[FrameTag]:
-        tags = self.ocr_inference.inference([frame], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
+        for i in range(0, len(imgs), ocr_batch):
+            ocr_out = self.ocr_inference.inference(
+                imgs[i:i+ocr_batch], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
+            for img in ocr_out:
+                res.append([])
+                for tag in img['ocr']['tags']:
+                    box = tag["box"]
+                    # limit to only x1, x2, y1, y2
+                    box = {"x1": box["x1"], "x2": box["x2"], "y1": box["y1"], "y2": box["y2"]}
+                    text = tag["text"]
+                    res[-1].append(FrameTag(tag=text, box=box))
+
+        return res
+    """
+
+    def tag_frame(self, img: np.ndarray) -> List[FrameTag]:
+        tags = self.ocr_inference.inference([img], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
         res = []
         for tag in tags[0]['ocr']['tags']:
             box = tag["box"]
             # limit to only x1, x2, y1, y2
             box = {"x1": box["x1"], "x2": box["x2"], "y1": box["y1"], "y2": box["y2"]}
-            res.append(FrameTag.from_dict({"text": tag["text"], "confidence": tag["confidence"], "box": box}))
+            text = tag["text"]
+            res[-1].append(FrameTag(tag=text, box=box))
         return res

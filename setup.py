@@ -12,6 +12,7 @@ setup(
         'torchvision==0.10.0',
         'numpy==1.21.6',
         'setproctitle',
+        'dacite',
         'common_ml @ git+https://github.com/eluv-io/common-ml.git#egg=common_ml',
     ]
 )
