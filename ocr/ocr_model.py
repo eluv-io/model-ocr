@@ -63,7 +63,7 @@ class OCRModel(BatchFrameModel):
     def __add_params(self):
         params = edict({
             'weight_folder': '',#'Folder for pretrained weights'
-            'image_batch_size': 8,#'Inference batch size for full images'
+            'image_batch_size': 10,#'Inference batch size for full images'
             'word_batch_size': 256,#'Inference batch size for word images'
             # CRAFT
             'craft_model': 'craft_mlt_25k.pth',#'Pretrained weights for CRAFT'
@@ -99,11 +99,10 @@ class OCRModel(BatchFrameModel):
     
     def tag_frames(self, imgs: np.ndarray) -> List[List[FrameTag]]:
         res = []
-        ocr_batch = 10
+        ocr_batch = self.args.image_batch_size
         for i in range(0, len(imgs), ocr_batch):
             ocr_out = self.ocr_inference.inference(
                 imgs[i:i+ocr_batch], self.args.word_batch_size, self.config.w_thres, self.config.l_thres)
-            print(ocr_out)
             for _, img in sorted(ocr_out.items(), key=lambda x: int(x[0])):
                 res.append([])
                 for tag in img['ocr']['tags']:
