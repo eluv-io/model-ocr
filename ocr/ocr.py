@@ -12,7 +12,6 @@ import torch
 from torch.nn import DataParallel
 import torchvision.transforms as transforms
 
-from .imageproc import normalizeMeanVariance
 from .model import CRAFT, RefineNet, STRModel
 from .boxproc import getDetBoxes, adjustResultCoordinates, getWordSequences
 from .modules import AttnLabelConverter, CTCLabelConverter
@@ -110,7 +109,7 @@ class OCR:
                  Transformation='TPS', n_fiducial=20,
                  FeatureExtraction='ResNet', word_in_channels=1, feature_extraction_channels=512,
                  SequenceModeling='BiLSTM', hidden_size=256,
-                 Prediction='Attn', max_text_len=25):
+                 Prediction='Attn', max_text_len=25, fp16=True):
         self.device = device
 
         # Detection settings
@@ -130,6 +129,11 @@ class OCR:
         self.word_in_channels = word_in_channels
         self.word_rgb = word_rgb
         self.Prediction = Prediction  # CTC | Attn
+        self.fp16 = fp16
+
+        # ImageNet mean/std in 0-255 range (see imageproc.normalizeMeanVariance)
+        self.norm_mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1) * 255.0
+        self.norm_std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1) * 255.0
 
         # Models
         logger.info('Initializing detection nets...')
@@ -173,13 +177,14 @@ class OCR:
     def inference(self, batch, word_batch_size=256, word_threshold=0.0, line_threshold=0.0):
         # Detection
         images, raw_hw, heatmap_hw, ratios = self.__image_preproc(batch)
-        images = images.to(self.device)
-        with torch.no_grad():
+        images = images.to(self.device, non_blocking=True).permute(0, 3, 1, 2).float().contiguous()  # N, C, H, W
+        images = images.sub_(self.norm_mean).div_(self.norm_std)
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=self.fp16):
             y, feature = self.det_net(images)
-            region = y[:, :, :, 0].cpu().numpy()
-            affinity = y[:, :, :, 1].cpu().numpy()
-            y = self.refine_net(y, feature)
-            link = y[:, :, :, 0].cpu().numpy()
+            link = self.refine_net(y, feature)
+            # single device->host transfer for all three score maps
+            maps = torch.cat([y, link], dim=3).float().cpu().numpy()
+        region, affinity, link = maps[..., 0], maps[..., 1], maps[..., 2]
 
         detections = []
         boxes_list = []  # a list of (word_index, word_quads) for each image
@@ -247,25 +252,22 @@ class OCR:
 
         target_h32 = target_h + (32 - target_h % 32) if target_h % 32 != 0 else target_h
         target_w32 = target_w + (32 - target_w % 32) if target_w % 32 != 0 else target_w
-        resized_images, raw_hw, heatmap_hw, ratios = [], [], [], []
-        for image in batch:
+        raw_hw, heatmap_hw, ratios = [], [], []
+        c = batch[0].shape[2]
+        canvases = np.zeros((len(batch), target_h32, target_w32, c), dtype=np.uint8)  # N, H, W, C
+        for k, image in enumerate(batch):
             h, w, c = image.shape
             ratio = min(target_h / h, target_w / w)  # to adjust bounding box coordinates
             th, tw = int(h * ratio), int(w * ratio)
 
-            # make canvas and paste resized image
-            canvas = np.zeros((target_h32, target_w32, c), dtype=np.float32)
+            # paste resized image into the (zero padded) canvas; normalization happens on the GPU
             resized = cv2.resize(image, (tw, th), interpolation=cv2.INTER_CUBIC)  #TODO interpolation
-            canvas[0:th, 0:tw, :] = resized
-
-            canvas = normalizeMeanVariance(canvas)  # H, W, C
-            canvas = torch.from_numpy(canvas).permute(2, 0, 1)  # C, H, W
-            resized_images.append(canvas)
+            canvases[k, 0:th, 0:tw, :] = resized
             heatmap_hw.append((th // 2, tw // 2))
             raw_hw.append((h, w))
             ratios.append(1 / ratio)
 
-        resized_images = torch.cat([x.unsqueeze(0) for x in resized_images], 0)
+        resized_images = torch.from_numpy(canvases).pin_memory()
         return resized_images, raw_hw, heatmap_hw, ratios
 
     def __word_preproc(self, batch, boxes_list):
