@@ -22,6 +22,8 @@ def getDetBoxes_core(text_map, link_map, region_thres, link_thres, text_thres):
     nLabels, labels, stats, controids = cv2.connectedComponentsWithStats(
         text_score_comb.astype(np.uint8), connectivity=4)
 
+    link_only = np.logical_and(link_score == 1, text_score == 0)
+
     det = []
     mapper = []
     for k in range(1, nLabels):
@@ -30,16 +32,13 @@ def getDetBoxes_core(text_map, link_map, region_thres, link_thres, text_thres):
         if size < 10:
             continue
 
-        # Filter out non-text CCs
-        if np.max(text_map[labels == k]) < text_thres:
-            continue
-
-        # Make segmentation map
-        segmap = np.zeros(text_map.shape, dtype=np.uint8)
-        segmap[labels == k] = 255
-        segmap[np.logical_and(link_score == 1, text_score == 0)] = 0  # Remove link area
         x, y = stats[k, cv2.CC_STAT_LEFT], stats[k, cv2.CC_STAT_TOP]
         w, h = stats[k, cv2.CC_STAT_WIDTH], stats[k, cv2.CC_STAT_HEIGHT]
+
+        # Filter out non-text CCs (component k lies entirely within its bounding box)
+        if np.max(text_map[y:y + h, x:x + w][labels[y:y + h, x:x + w] == k]) < text_thres:
+            continue
+
         niter = int(math.sqrt(size * min(w, h) / (w * h)) * 2)
         sx, ex, sy, ey = x - niter, x + w + niter + 1, y - niter, y + h + niter + 1
         # Boundary check
@@ -51,11 +50,16 @@ def getDetBoxes_core(text_map, link_map, region_thres, link_thres, text_thres):
             ex = im_w
         if ey >= im_h:
             ey = im_h
+        # Make segmentation map, only within the dilation window (it is zero everywhere else)
+        segmap = np.zeros((ey - sy, ex - sx), dtype=np.uint8)
+        segmap[labels[sy:ey, sx:ex] == k] = 255
+        segmap[link_only[sy:ey, sx:ex]] = 0  # Remove link area
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1 + niter, 1 + niter))
-        segmap[sy:ey, sx:ex] = cv2.dilate(segmap[sy:ey, sx:ex], kernel)
+        segmap = cv2.dilate(segmap, kernel)
 
         # Make box
-        np_contours = np.roll(np.array(np.where(segmap != 0)), 1, axis=0).transpose().reshape(-1, 2)
+        ys, xs = np.where(segmap != 0)
+        np_contours = np.stack([xs + sx, ys + sy], axis=1)
         rectangle = cv2.minAreaRect(np_contours)
         box = cv2.boxPoints(rectangle)
 
@@ -238,17 +242,24 @@ def getPoly_core(boxes, labels, mapper):
 
 
 def getWordSequences(word_cc_map, word_cc_labels, line_cc_map, line_cc_labels):
+    # For every (line, word) label pair that overlaps, count the shared pixels and find the leftmost column,
+    # in a single pass over the map instead of one pass per (line, word) pair.
+    ys, xs = np.nonzero((word_cc_map > 0) & (line_cc_map > 0))
+    stride = int(word_cc_map.max()) + 1
+    keys = line_cc_map[ys, xs].astype(np.int64) * stride + word_cc_map[ys, xs]
+    uniq, inv, counts = np.unique(keys, return_inverse=True, return_counts=True)
+    min_x = np.full(len(uniq), np.iinfo(np.int64).max)
+    np.minimum.at(min_x, inv, xs)
+    stats = {int(key): (int(c), int(mx)) for key, c, mx in zip(uniq, counts, min_x)}
+
     word_sequences = []
     for k in line_cc_labels:
         word_seq = []
-        word_labels = word_cc_map.copy()
-        word_labels[line_cc_map != k] = 0
-
         for w in word_cc_labels:
-            xi = np.where(word_labels == w)[1]
-            if len(xi) < 2:
+            count, xmin = stats.get(int(k) * stride + int(w), (0, 0))
+            if count < 2:
                 continue
-            word_seq.append((w, xi.min()))
+            word_seq.append((w, xmin))
         word_seq = sorted(word_seq, key=lambda t: t[1])
         word_seq = [t[0] for t in word_seq]
         word_sequences.append(word_seq)
